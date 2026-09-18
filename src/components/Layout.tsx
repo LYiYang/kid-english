@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet } from 'react-router-dom'
 import { useApp } from '../store/useApp'
 import { MemberAvatar } from './MemberAvatar'
+import { MemberSwitchDialog } from './MemberSwitchDialog'
 import { PinDialog } from './PinDialog'
 
 const navItems = [
@@ -13,8 +14,6 @@ const navItems = [
   { to: '/texts', label: '课文', icon: '📖' },
   { to: '/scan', label: '拍照', icon: '📷' },
   { to: '/game', label: '闯关', icon: '🎮' },
-  { to: '/rewards', label: '奖励', icon: '🏆' },
-  { to: '/members', label: '成员', icon: '👨‍👩‍👧' },
   { to: '/settings', label: '设置', icon: '⚙️' },
 ]
 
@@ -38,12 +37,12 @@ function AppSwitcher({ fixed = false }: { fixed?: boolean }) {
 
 function MemberChip({ fixed = false }: { fixed?: boolean }) {
   const { activeMember, isAdmin } = useApp()
-  const navigate = useNavigate()
   const [pinOpen, setPinOpen] = useState(false)
+  const [switchOpen, setSwitchOpen] = useState(false)
 
   const handleClick = () => {
     if (isAdmin) {
-      navigate('/members')
+      setSwitchOpen(true)
     } else {
       setPinOpen(true)
     }
@@ -55,7 +54,7 @@ function MemberChip({ fixed = false }: { fixed?: boolean }) {
         type="button"
         className={fixed ? 'member-chip member-chip--fixed' : 'member-chip'}
         onClick={handleClick}
-        title="切换成员 / 管理成员"
+        title="切换成员"
       >
         <MemberAvatar member={activeMember} size={30} />
         <span className="member-chip-info">
@@ -69,10 +68,11 @@ function MemberChip({ fixed = false }: { fixed?: boolean }) {
           onClose={() => setPinOpen(false)}
           onUnlocked={() => {
             setPinOpen(false)
-            navigate('/members')
+            setSwitchOpen(true)
           }}
         />
       )}
+      {switchOpen && <MemberSwitchDialog onClose={() => setSwitchOpen(false)} />}
     </>
   )
 }

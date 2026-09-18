@@ -76,15 +76,7 @@ export interface Member {
   createdAt: number
 }
 
-export interface Reward {
-  id: string
-  name: string
-  icon: string
-  cost: number
-  claimed?: boolean
-}
-
-// 每个成员独立的学习进度（积分/奖励为全家人共享，见 AppProvider）
+// 每个成员独立的学习进度；积分与成员共用 kid-tasks 的按成员积分
 export interface UserData {
   reviewCount: number
   progress: Record<string, WordProgress>

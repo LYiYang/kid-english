@@ -1651,6 +1651,72 @@ input {
   font-size: 14px;
 }
 
+/* 成员切换弹窗 */
+.member-switch {
+  width: 340px;
+  max-width: 92vw;
+  padding: 22px;
+  border-radius: 18px;
+  background: var(--card, #fff);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.member-switch-title {
+  font-size: 18px;
+  margin: 0;
+}
+
+.member-switch-desc {
+  margin: 4px 0 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.member-switch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.member-switch-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.member-switch-item--active {
+  border-color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.1);
+}
+
+.member-switch-name {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.member-switch-check {
+  color: #8b5cf6;
+  font-weight: 800;
+}
+
+.member-switch-hint {
+  margin: 14px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.5;
+}
+
 /* Scan / OCR */
 .scan-layout {
   display: grid;

@@ -14,7 +14,6 @@ import type {
   Member,
   MemberRole,
   Rating,
-  Reward,
   StarRating,
   TextUnit,
   UserData,
@@ -25,21 +24,15 @@ import { createInitialProgress, schedule } from '../utils/spacedRepeat'
 import { usePersistentState } from '../hooks/usePersistentState'
 import { getFamilyId, setFamilyId } from '../lib/family'
 
-// 与 kid-tasks 共用的 key（同一浏览器、同一 Supabase 行）→ 共享成员/活跃身份/积分/奖励
+// 与 kid-tasks 共用的 key（同一浏览器、同一 Supabase 行）
+// → 共享家庭码 / 成员 / 活跃身份 / 按成员积分
 const MEMBERS_KEY = 'kid-tasks.members'
 const ACTIVE_KEY = 'kid-tasks.activeMember'
-const POINTS_KEY = 'kid-tasks.earnedPoints'
-const REWARDS_KEY = 'kid-tasks.rewards'
+const POINTS_KEY = 'kid-tasks.pointsByMember'
 // kids-english 专属：每个成员的学习进度（词库、复习、星星）+ 课文
 const WORDS_KEY = 'kids-english:words'
 const PROGRESS_KEY = 'kids-english:progress'
 const TEXTS_KEY = 'kids-english:texts'
-
-const DEFAULT_REWARDS: Reward[] = [
-  { id: 'r-1', name: '冰淇淋', icon: '🍦', cost: 30, claimed: false },
-  { id: 'r-2', name: '看动画片', icon: '📺', cost: 50, claimed: false },
-  { id: 'r-3', name: '去游乐园', icon: '🎡', cost: 100, claimed: false },
-]
 
 const DEFAULT_PIN = '1234'
 
@@ -108,15 +101,12 @@ interface AppContextValue {
   // 当前成员学习进度（英语专属，按成员隔离）
   userData: UserData
   totalStars: number
-  // 积分 / 奖励（与 kid-tasks 共享）
+  // 积分（与 kid-tasks 共享，绑定在成员上）
   points: number
-  rewards: Reward[]
   reviewWord: (id: string, rating: Rating) => void
   recordLevelResult: (levelId: number, stars: StarRating, errors: number) => void
   addPoints: (n: number) => void
   incrementReviewCount: () => void
-  claimReward: (id: string) => void
-  addReward: (name: string, icon: string, cost: number) => void
   resetAll: () => void
 }
 
@@ -135,11 +125,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [progressMap, setProgressMap, progressReady] = usePersistentState<
     Record<string, UserData>
   >(PROGRESS_KEY, {})
-  const [points, setPoints, pointsReady] = usePersistentState<number>(POINTS_KEY, 0)
-  const [rewards, setRewards, rewardsReady] = usePersistentState<Reward[]>(
-    REWARDS_KEY,
-    DEFAULT_REWARDS,
-  )
+  const [pointsByMember, setPointsByMember, pointsReady] = usePersistentState<
+    Record<string, number>
+  >(POINTS_KEY, {})
   const [texts, setTexts, textsReady] = usePersistentState<TextUnit[]>(
     TEXTS_KEY,
     makeDefaultTexts(),
@@ -152,7 +140,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     wordsReady &&
     progressReady &&
     pointsReady &&
-    rewardsReady &&
     textsReady
 
   // 保证每个成员都有 progress 数据
@@ -193,11 +180,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [userData.levels],
   )
 
+  const points = pointsByMember[activeMember.id] ?? 0
+
   const value = useMemo<AppContextValue>(() => {
     const setActiveProgress = (updater: (prev: UserData) => UserData) => {
       setProgressMap((prev) => ({
         ...prev,
         [activeMember.id]: updater(prev[activeMember.id] ?? defaultUserData()),
+      }))
+    }
+
+    // 给「当前成员」增加积分（与 kid-tasks 共用同一份数据）
+    const addPointsToActive = (n: number) => {
+      setPointsByMember((prev) => ({
+        ...prev,
+        [activeMember.id]: Math.max(0, (prev[activeMember.id] ?? 0) + n),
       }))
     }
 
@@ -257,7 +254,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       userData,
       totalStars,
       points,
-      rewards,
       reviewWord: (id, rating) => {
         setActiveProgress((prev) => {
           const cur = prev.progress[id] ?? createInitialProgress()
@@ -274,28 +270,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
           },
         }))
         const delta = stars > prevBest && stars > 0 ? stars * 10 : 0
-        if (delta) setPoints((p) => Math.max(0, p + delta))
+        if (delta) addPointsToActive(delta)
       },
-      addPoints: (n) => setPoints((p) => Math.max(0, p + n)),
+      addPoints: (n) => addPointsToActive(n),
       incrementReviewCount: () => setActiveProgress((prev) => ({ ...prev, reviewCount: prev.reviewCount + 1 })),
-      claimReward: (id) => {
-        const r = rewards.find((x) => x.id === id)
-        if (!r || r.claimed || points < r.cost) return
-        setRewards((prev) => prev.map((x) => (x.id === id ? { ...x, claimed: true } : x)))
-        setPoints((p) => Math.max(0, p - r.cost))
-      },
-      addReward: (name, icon, cost) =>
-        setRewards((prev) => [
-          ...prev,
-          { id: `r-${Date.now()}`, name: name.trim(), icon, cost, claimed: false },
-        ]),
       resetAll: () => {
-        setMembers(makeDefaultMembers())
-        setActiveMemberId('m-3')
+        // 只重置英语学习数据；成员 / 家庭码 / 积分与 kid-tasks 共用，不在此清空
         setWords(makeDefaultWords())
         setProgressMap({})
-        setPoints(0)
-        setRewards(DEFAULT_REWARDS)
       },
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -310,7 +292,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     userData,
     totalStars,
     points,
-    rewards,
+    pointsByMember,
     texts,
   ])
 

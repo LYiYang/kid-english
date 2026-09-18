@@ -100,7 +100,7 @@ export default function Settings() {
             {confirming ? '再次点击确认重置' : '重置所有数据'}
           </button>
           <p className="settings-hint">
-            重置会清空所有单词、成员、进度和奖励，且无法恢复（管理员）。
+            只重置英语学习数据（词库与学习进度）。成员、家庭码、积分与「任务乐园」共用，不受影响。
           </p>
         </div>
       )}

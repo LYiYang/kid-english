@@ -9,8 +9,6 @@ import ReadAloud from './pages/ReadAloud'
 import TextBook from './pages/TextBook'
 import Scan from './pages/Scan'
 import Game from './pages/Game'
-import Rewards from './pages/Rewards'
-import Members from './pages/Members'
 import Settings from './pages/Settings'
 import { AppProvider, useApp } from './store/useApp'
 import './App.css'
@@ -36,8 +34,6 @@ export default function App() {
               <Route path="/texts" element={<TextBook />} />
               <Route path="/scan" element={<Scan />} />
               <Route path="/game" element={<Game />} />
-              <Route path="/rewards" element={<Rewards />} />
-              <Route path="/members" element={<Members />} />
               <Route path="/settings" element={<Settings />} />
             </Route>
           </Routes>
