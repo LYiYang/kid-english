@@ -18,7 +18,10 @@ const navItems = [
   { to: '/settings', label: '设置', icon: '⚙️' },
 ]
 
-const kidTasksUrl = `${window.location.protocol}//${window.location.hostname}:5173/kid-tasks/`
+// 切换到 kid-tasks 的入口：线上用 GitHub Pages，本地走网关 5173
+const kidTasksUrl = import.meta.env.PROD
+  ? 'https://lyiyang.github.io/kid-tasks/'
+  : `${window.location.protocol}//${window.location.hostname}:5173/kid-tasks/`;
 
 function AppSwitcher({ fixed = false }: { fixed?: boolean }) {
   return (
