@@ -1,5 +1,12 @@
 export type OcrProgress = (message: string, percent?: number) => void
 
+export interface CropRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
 type ImageToTextOutput = { generated_text: string }
 type ImageToText = (
   input: string,
@@ -21,37 +28,93 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 }
 
 /**
- * 图像预处理：智能缩放 + 灰度化 + 对比度增强。
- * 返回 canvas，供 Tesseract / TrOCR 复用。
+ * 图像预处理：
+ * 1) 智能缩放  2) 灰度化  3) 自适应阈值二值化  4) 自动反色（白字深底 → 黑字白底）
+ * 支持传入裁剪区域，先把配图/笔等干扰裁掉。
  */
-export async function preprocessToCanvas(file: File | Blob): Promise<HTMLCanvasElement> {
+export async function preprocessToCanvas(
+  file: File | Blob,
+  crop?: CropRect | null,
+): Promise<HTMLCanvasElement> {
   const url = URL.createObjectURL(file)
   try {
     const img = await loadImage(url)
-    const w = img.naturalWidth
-    const h = img.naturalHeight
+    const natW = img.naturalWidth
+    const natH = img.naturalHeight
+
+    const sx = crop ? Math.max(0, Math.min(natW - 1, Math.round(crop.x))) : 0
+    const sy = crop ? Math.max(0, Math.min(natH - 1, Math.round(crop.y))) : 0
+    const sw = crop ? Math.max(1, Math.min(natW - sx, Math.round(crop.w))) : natW
+    const sh = crop ? Math.max(1, Math.min(natH - sy, Math.round(crop.h))) : natH
+
     const maxW = 3200
     const minW = 1200
     let scale = 1
-    if (w > maxW) scale = maxW / w
-    else if (w < minW) scale = Math.min(3, 2000 / w)
-    const cw = Math.max(1, Math.round(w * scale))
-    const ch = Math.max(1, Math.round(h * scale))
+    if (sw > maxW) scale = maxW / sw
+    else if (sw < minW) scale = Math.min(3, 2000 / sw)
+    const cw = Math.max(1, Math.round(sw * scale))
+    const ch = Math.max(1, Math.round(sh * scale))
 
     const canvas = document.createElement('canvas')
     canvas.width = cw
     canvas.height = ch
-    const ctx = canvas.getContext('2d')
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
     if (!ctx) throw new Error('无法创建画布')
-    ctx.drawImage(img, 0, 0, cw, ch)
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch)
 
     const imageData = ctx.getImageData(0, 0, cw, ch)
     const d = imageData.data
-    for (let i = 0; i < d.length; i += 4) {
-      const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
-      let v = (gray - 128) * 1.6 + 128
-      v = v < 0 ? 0 : v > 255 ? 255 : v
-      d[i] = d[i + 1] = d[i + 2] = v
+    const W = cw
+    const H = ch
+
+    // 灰度
+    const gray = new Uint8Array(W * H)
+    for (let i = 0; i < gray.length; i++) {
+      const j = i * 4
+      gray[i] = (0.299 * d[j] + 0.587 * d[j + 1] + 0.114 * d[j + 2]) | 0
+    }
+
+    // 积分图，用于 O(1) 求窗口均值
+    const integral = new Float64Array((W + 1) * (H + 1))
+    for (let y = 0; y < H; y++) {
+      let rowSum = 0
+      for (let x = 0; x < W; x++) {
+        rowSum += gray[y * W + x]
+        integral[(y + 1) * (W + 1) + (x + 1)] = integral[y * (W + 1) + (x + 1)] + rowSum
+      }
+    }
+
+    const half = Math.min(60, Math.max(8, Math.round(Math.min(W, H) / 30)))
+    const C = 10
+    const binary = new Uint8Array(W * H)
+    let darkCount = 0
+
+    for (let y = 0; y < H; y++) {
+      const y0 = Math.max(0, y - half)
+      const y1 = Math.min(H - 1, y + half)
+      for (let x = 0; x < W; x++) {
+        const x0 = Math.max(0, x - half)
+        const x1 = Math.min(W - 1, x + half)
+        const area = (x1 - x0 + 1) * (y1 - y0 + 1)
+        const sum =
+          integral[(y1 + 1) * (W + 1) + (x1 + 1)] -
+          integral[y0 * (W + 1) + (x1 + 1)] -
+          integral[(y1 + 1) * (W + 1) + x0] +
+          integral[y0 * (W + 1) + x0]
+        const mean = sum / area
+        const black = gray[y * W + x] < mean - C
+        binary[y * W + x] = black ? 0 : 255
+        if (black) darkCount++
+      }
+    }
+
+    // 若黑色占多数，说明是「深底浅字」，整体反色
+    const invert = darkCount > (W * H) / 2
+    for (let i = 0; i < W * H; i++) {
+      const v = invert ? 255 - binary[i] : binary[i]
+      const j = i * 4
+      d[j] = d[j + 1] = d[j + 2] = v
+      d[j + 3] = 255
     }
     ctx.putImageData(imageData, 0, 0)
     return canvas

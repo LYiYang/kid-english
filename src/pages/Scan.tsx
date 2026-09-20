@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useMemo, useRef, useState, type ChangeEvent, type PointerEvent } from 'react'
 import { useApp } from '../store/useApp'
 import {
   preprocessToCanvas,
   recognizeHandwritten,
   recognizePrinted,
+  type CropRect,
   type OcrProgress,
 } from '../lib/ocr'
 import type { TextUnit } from '../types'
@@ -11,11 +12,24 @@ import type { TextUnit } from '../types'
 type Mode = 'word' | 'sentence' | 'text'
 type Engine = 'printed' | 'handwritten'
 
+interface Sel {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+// 把折行合并为完整句子：换行 → 空格，再按句末标点切分
 function splitSentences(text: string): string[] {
-  const lines = text.split('\n').map((s) => s.trim()).filter(Boolean)
-  if (lines.length > 1) return lines
-  const parts = text.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean)
-  return parts.length > 0 ? parts : (text.trim() ? [text.trim()] : [])
+  const normalized = text
+    .replace(/\r/g, ' ')
+    .replace(/\n+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!normalized) return []
+  const matches = normalized.match(/[^.!?]+[.!?]+["')\]]*|[^.!?]+$/g)
+  if (!matches) return [normalized]
+  return matches.map((s) => s.trim()).filter(Boolean)
 }
 
 function suggestMode(text: string): Mode {
@@ -31,8 +45,13 @@ function suggestMode(text: string): Mode {
 export default function Scan() {
   const { addWord, addText, words } = useApp()
   const fileRef = useRef<HTMLInputElement>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const imgRef = useRef<HTMLImageElement>(null)
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null)
+
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [imageFile, setImageFile] = useState<File | null>(null)
+  const [sel, setSel] = useState<Sel | null>(null)
   const [engine, setEngine] = useState<Engine>('printed')
   const [psm, setPsm] = useState('6')
   const [recognizing, setRecognizing] = useState(false)
@@ -67,10 +86,56 @@ export default function Scan() {
     if (!f) return
     setImageFile(f)
     setImageUrl(URL.createObjectURL(f))
+    setSel(null)
     setRecognizedText('')
     setOcrError('')
     setMsg('')
     setStatus('')
+  }
+
+  const pointFromEvent = (e: PointerEvent) => {
+    const rect = wrapRef.current?.getBoundingClientRect()
+    if (!rect) return { x: 0, y: 0 }
+    return {
+      x: Math.max(0, Math.min(rect.width, e.clientX - rect.left)),
+      y: Math.max(0, Math.min(rect.height, e.clientY - rect.top)),
+    }
+  }
+
+  const onPointerDown = (e: PointerEvent) => {
+    if (!imageUrl) return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    dragStartRef.current = pointFromEvent(e)
+    setSel(null)
+  }
+
+  const onPointerMove = (e: PointerEvent) => {
+    if (!dragStartRef.current) return
+    const p = pointFromEvent(e)
+    const s = dragStartRef.current
+    setSel({
+      x: Math.min(s.x, p.x),
+      y: Math.min(s.y, p.y),
+      w: Math.abs(p.x - s.x),
+      h: Math.abs(p.y - s.y),
+    })
+  }
+
+  const onPointerUp = () => {
+    dragStartRef.current = null
+    setSel((prev) => (prev && (prev.w < 12 || prev.h < 12) ? null : prev))
+  }
+
+  const getCrop = (): CropRect | null => {
+    if (!sel || !imgRef.current) return null
+    const natW = imgRef.current.naturalWidth
+    const natH = imgRef.current.naturalHeight
+    const dispW = imgRef.current.clientWidth
+    const dispH = imgRef.current.clientHeight
+    if (!dispW || !dispH) return null
+    const kx = natW / dispW
+    const ky = natH / dispH
+    return { x: sel.x * kx, y: sel.y * ky, w: sel.w * kx, h: sel.h * ky }
   }
 
   const runOcr = async () => {
@@ -83,7 +148,7 @@ export default function Scan() {
       setStatus(percent != null ? `${message}（${percent}%）` : message)
     }
     try {
-      const canvas = await preprocessToCanvas(imageFile)
+      const canvas = await preprocessToCanvas(imageFile, getCrop())
       const text =
         engine === 'handwritten'
           ? await recognizeHandwritten(canvas, onProgress)
@@ -101,7 +166,7 @@ export default function Scan() {
       )
       setPicked(new Set(tokens))
       setWordCn({})
-      setMsg(text ? '识别完成，请校对并分类。' : '没有识别到文字，请换一张更清晰的图片。')
+      setMsg(text ? '识别完成，已自动合并折行为完整句子，请校对并分类。' : '没有识别到文字，请框选文字区域后重试。')
     } catch (err) {
       setOcrError('识别失败：' + (err instanceof Error ? err.message : String(err)))
     } finally {
@@ -165,10 +230,26 @@ export default function Scan() {
       <div className="scan-layout">
         <div className="scan-upload">
           {imageUrl ? (
-            <img src={imageUrl} alt="预览" className="scan-preview" />
+            <div
+              ref={wrapRef}
+              className="scan-crop-wrap"
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerUp}
+            >
+              <img ref={imgRef} src={imageUrl} alt="预览" className="scan-preview" draggable={false} />
+              {sel && (
+                <span
+                  className="scan-crop-rect"
+                  style={{ left: sel.x, top: sel.y, width: sel.w, height: sel.h }}
+                />
+              )}
+            </div>
           ) : (
             <div className="scan-placeholder">📷 点击下方按钮拍照或选取图片</div>
           )}
+
           <div className="scan-buttons">
             <button
               type="button"
@@ -185,6 +266,11 @@ export default function Scan() {
             >
               {recognizing ? '识别中…' : '✨ 识别文字'}
             </button>
+            {sel && (
+              <button type="button" className="btn btn--ghost" onClick={() => setSel(null)}>
+                清除选区
+              </button>
+            )}
           </div>
           <input
             ref={fileRef}
@@ -194,6 +280,10 @@ export default function Scan() {
             onChange={handleFile}
             hidden
           />
+
+          <p className="scan-hint">
+            {imageUrl ? '在图片上按住拖动可框选文字区域（排除配图、笔等干扰）。' : '拍摄技巧：光线充足、正对文字不倾斜。'}
+          </p>
 
           <div className="scan-engine">
             <span className="scan-engine-label">识别引擎</span>
@@ -229,9 +319,6 @@ export default function Scan() {
               手写识别首次使用需下载模型（约几百 MB，走 hf-mirror 镜像），请耐心等待；识别按行进行，较慢。
             </p>
           )}
-          <p className="scan-hint">
-            拍摄技巧：光线充足、正对文字不倾斜、尽量只拍文字区域，效果最好。
-          </p>
           {status && <p className="scan-msg">{status}</p>}
           {ocrError && <p className="warn">{ocrError}</p>}
         </div>
@@ -323,6 +410,7 @@ export default function Scan() {
                   placeholder="整体中文翻译（可选）"
                 />
               </label>
+              <p className="scan-hint">已把折行合并为完整句子：</p>
               <div className="scan-sentences">
                 {sentenceItems.map((s, i) => (
                   <div key={i} className="scan-sentence-item">
