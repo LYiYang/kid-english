@@ -21,6 +21,56 @@ function suggestMode(text: string): Mode {
   return 'word'
 }
 
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('图片加载失败'))
+    img.src = src
+  })
+}
+
+/**
+ * 图像预处理：智能缩放 + 灰度化 + 对比度增强。
+ * 手机照片通常需要这一步，否则 Tesseract 容易把单词切碎。
+ */
+async function preprocessImage(file: File): Promise<string> {
+  const url = URL.createObjectURL(file)
+  try {
+    const img = await loadImage(url)
+    const w = img.naturalWidth
+    const h = img.naturalHeight
+    const maxW = 3200
+    const minW = 1200
+    let scale = 1
+    if (w > maxW) scale = maxW / w
+    else if (w < minW) scale = Math.min(3, 2000 / w)
+    const cw = Math.max(1, Math.round(w * scale))
+    const ch = Math.max(1, Math.round(h * scale))
+
+    const canvas = document.createElement('canvas')
+    canvas.width = cw
+    canvas.height = ch
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return url
+    ctx.drawImage(img, 0, 0, cw, ch)
+
+    const imageData = ctx.getImageData(0, 0, cw, ch)
+    const d = imageData.data
+    for (let i = 0; i < d.length; i += 4) {
+      const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
+      let v = (gray - 128) * 1.6 + 128
+      v = v < 0 ? 0 : v > 255 ? 255 : v
+      d[i] = d[i + 1] = d[i + 2] = v
+    }
+    ctx.putImageData(imageData, 0, 0)
+    return canvas.toDataURL('image/png')
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+
 export default function Scan() {
   const { addWord, addText, words } = useApp()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -36,6 +86,7 @@ export default function Scan() {
   const [wordCn, setWordCn] = useState<Record<string, string>>({})
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [msg, setMsg] = useState('')
+  const [psm, setPsm] = useState('6')
 
   const groups = useMemo(() => {
     const set = new Set(words.map((w) => w.group))
@@ -66,9 +117,19 @@ export default function Scan() {
     setOcrError('')
     setMsg('')
     try {
-      const { createWorker } = await import('tesseract.js')
+      const prepared = await preprocessImage(imageFile)
+      const { createWorker, PSM } = await import('tesseract.js')
       const worker = await createWorker('eng')
-      const { data } = await worker.recognize(imageFile)
+      const psmValue = psm === '3' ? PSM.AUTO : psm === '11' ? PSM.SPARSE_TEXT : PSM.SINGLE_BLOCK
+      await worker.setParameters({
+        // 版式模式：3=自动，6=单块文字，11=分散文字
+        tessedit_pageseg_mode: psmValue,
+        // 保留单词之间的空格，避免把单词切碎
+        preserve_interword_spaces: '1',
+        // 让 Tesseract 按合理分辨率处理，避免过小/过大导致误切
+        user_defined_dpi: '300',
+      })
+      const { data } = await worker.recognize(prepared)
       await worker.terminate()
       const text = (data.text || '').trim()
       setRecognizedText(text)
@@ -162,6 +223,17 @@ export default function Scan() {
               {recognizing ? '识别中…' : '✨ 识别文字'}
             </button>
           </div>
+          <label className="scan-label scan-psm">
+            版式
+            <select value={psm} onChange={(e) => setPsm(e.target.value)} className="member-input">
+              <option value="6">整段文字（默认）</option>
+              <option value="3">自动版面</option>
+              <option value="11">零散单词</option>
+            </select>
+          </label>
+          <p className="scan-hint">
+            拍摄技巧：光线充足、正对文字不倾斜、尽量只拍文字区域，效果最好。
+          </p>
           <input
             ref={fileRef}
             type="file"
