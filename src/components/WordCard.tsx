@@ -31,7 +31,12 @@ export default function WordCard({ word, size = 'md', showCn = true, onSpeak }: 
           )}
         </div>
         {word.phonetic && <span className="word-card-phonetic">{word.phonetic}</span>}
-        {showCn && <span className="word-card-cn">{word.cn}</span>}
+        {showCn && (
+          <span className="word-card-cn">
+            {word.pos && <span className="word-card-pos">{word.pos}</span>}
+            {word.cn}
+          </span>
+        )}
       </div>
     </div>
   )

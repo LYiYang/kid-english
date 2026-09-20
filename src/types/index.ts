@@ -15,6 +15,7 @@ export interface Word {
   en: string
   cn: string
   phonetic?: string
+  pos?: string
   group: string
   example?: string
   exampleCn?: string

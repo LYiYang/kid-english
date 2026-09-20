@@ -7,6 +7,7 @@ import {
   type CropRect,
   type OcrProgress,
 } from '../lib/ocr'
+import { lookupWord } from '../lib/dictionary'
 import type { TextUnit } from '../types'
 
 type Mode = 'word' | 'sentence' | 'text'
@@ -63,7 +64,10 @@ export default function Scan() {
   const [title, setTitle] = useState('')
   const [cn, setCn] = useState('')
   const [wordCn, setWordCn] = useState<Record<string, string>>({})
+  const [wordPh, setWordPh] = useState<Record<string, string>>({})
+  const [wordPos, setWordPos] = useState<Record<string, string>>({})
   const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [looking, setLooking] = useState(false)
   const [msg, setMsg] = useState('')
 
   const groups = useMemo(() => {
@@ -189,13 +193,48 @@ export default function Scan() {
       .map((en) => ({ en, cn: (wordCn[en] || '').trim() }))
       .filter((x) => x.cn)
     if (list.length === 0) {
-      setMsg('请至少给一个单词填写中文释义后再添加。')
+      setMsg('请先点「自动查词」或手动填写中文释义。')
       return
     }
     const g = group.trim() || '拍照录入'
-    list.forEach((x) => addWord({ en: x.en, cn: x.cn, group: g }))
+    list.forEach((x) =>
+      addWord({
+        en: x.en,
+        cn: x.cn,
+        phonetic: wordPh[x.en] || undefined,
+        pos: wordPos[x.en] || undefined,
+        group: g,
+      }),
+    )
     setMsg(`已添加 ${list.length} 个单词到「${g}」分组。`)
     setPicked(new Set())
+  }
+
+  const autoLookup = async () => {
+    const tokens = [...picked]
+    if (tokens.length === 0) {
+      setMsg('请先勾选要查词的单词。')
+      return
+    }
+    setLooking(true)
+    const cnMap: Record<string, string> = {}
+    const phMap: Record<string, string> = {}
+    const posMap: Record<string, string> = {}
+    for (let i = 0; i < tokens.length; i++) {
+      setStatus(`查词 ${i + 1}/${tokens.length}：${tokens[i]}`)
+      const r = await lookupWord(tokens[i])
+      if (r.found) {
+        cnMap[tokens[i]] = r.cn
+        phMap[tokens[i]] = r.phonetic
+        posMap[tokens[i]] = r.pos
+      }
+    }
+    setWordCn((prev) => ({ ...prev, ...cnMap }))
+    setWordPh((prev) => ({ ...prev, ...phMap }))
+    setWordPos((prev) => ({ ...prev, ...posMap }))
+    setStatus('')
+    setLooking(false)
+    setMsg(`已自动查词 ${Object.keys(cnMap).length}/${tokens.length} 个，可再手动修改。`)
   }
 
   const saveText = () => {
@@ -365,7 +404,7 @@ export default function Scan() {
           {mode === 'word' && (
             <div className="scan-words">
               <p className="scan-hint">
-                已解析出 {tokenCandidates.length} 个英文单词，勾选要录入的，并填写中文释义。
+                已解析出 {tokenCandidates.length} 个英文单词，勾选后点「自动查词」即可带出翻译/音标/词性。
               </p>
               {tokenCandidates.length === 0 && <p className="empty">没有解析到单词。</p>}
               {tokenCandidates.map((token) => (
@@ -375,7 +414,11 @@ export default function Scan() {
                     checked={picked.has(token)}
                     onChange={() => togglePick(token)}
                   />
-                  <span className="scan-word-en">{token}</span>
+                  <span className="scan-word-en">
+                    {token}
+                    {wordPos[token] && <span className="word-card-pos">{wordPos[token]}</span>}
+                    {wordPh[token] && <span className="scan-word-ph">{wordPh[token]}</span>}
+                  </span>
                   <input
                     className="member-input scan-word-cn"
                     value={wordCn[token] || ''}
@@ -384,9 +427,19 @@ export default function Scan() {
                   />
                 </div>
               ))}
-              <button type="button" className="btn btn--primary" onClick={addSelectedWords}>
-                添加到单词本
-              </button>
+              <div className="scan-word-actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={autoLookup}
+                  disabled={looking || picked.size === 0}
+                >
+                  {looking ? '查词中…' : '🔍 自动查词'}
+                </button>
+                <button type="button" className="btn btn--primary" onClick={addSelectedWords}>
+                  添加到单词本
+                </button>
+              </div>
             </div>
           )}
 

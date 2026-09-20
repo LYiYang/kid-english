@@ -91,7 +91,7 @@ interface AppContextValue {
   /* 词库（家庭共享） */
   words: Word[]
   wordsView: WordView[]
-  addWord: (w: { en: string; cn: string; phonetic?: string; group: string }) => void
+  addWord: (w: { en: string; cn: string; phonetic?: string; pos?: string; group: string }) => void
   removeWord: (id: string) => void
   resetWords: () => void
   /* 课文（家庭共享，可增删） */
@@ -239,11 +239,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
       words,
       wordsView,
-      addWord: ({ en, cn, phonetic, group }) => {
+      addWord: ({ en, cn, phonetic, pos, group }) => {
         const now = Date.now()
         setWords((prev) => [
           ...prev,
-          { id: `word-${now}-${en}`, en: en.trim(), cn: cn.trim(), phonetic, group, createdAt: now },
+          {
+            id: `word-${now}-${en}`,
+            en: en.trim(),
+            cn: cn.trim(),
+            phonetic,
+            pos,
+            group,
+            createdAt: now,
+          },
         ])
       },
       removeWord: (id) => setWords((prev) => prev.filter((w) => w.id !== id)),

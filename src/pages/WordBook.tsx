@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useApp } from '../store/useApp'
 import WordCard from '../components/WordCard'
+import { lookupWord } from '../lib/dictionary'
 
 export default function WordBook() {
   const { words, wordsView, addWord, removeWord } = useApp()
@@ -24,34 +25,77 @@ export default function WordBook() {
 
   const [en, setEn] = useState('')
   const [cn, setCn] = useState('')
+  const [pos, setPos] = useState('')
   const [group, setGroup] = useState('')
   const [phonetic, setPhonetic] = useState('')
+  const [looking, setLooking] = useState(false)
+  const [lookupMsg, setLookupMsg] = useState('')
+
+  async function handleLookup() {
+    const word = en.trim()
+    if (!word) {
+      setLookupMsg('请先输入英文单词')
+      return
+    }
+    setLooking(true)
+    setLookupMsg('查询中…')
+    const r = await lookupWord(word)
+    if (r.found) {
+      setCn((prev) => prev || r.cn)
+      setPhonetic((prev) => prev || r.phonetic)
+      setPos((prev) => prev || r.pos)
+      if (!group.trim() && r.category) setGroup(r.category)
+      setLookupMsg(
+        r.source === 'online'
+          ? '词典库未收录，已用在线翻译填充释义'
+          : `已自动填充${r.pos ? '（' + r.pos + '）' : ''}${r.category ? ' · 分类：' + r.category : ''}`,
+      )
+    } else {
+      setLookupMsg('未查到该词，请手动填写')
+    }
+    setLooking(false)
+  }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
     if (!en.trim() || !cn.trim()) return
     const finalGroup = group.trim() || '未分组'
-    addWord({ en: en.trim(), cn: cn.trim(), phonetic: phonetic.trim() || undefined, group: finalGroup })
+    addWord({
+      en: en.trim(),
+      cn: cn.trim(),
+      phonetic: phonetic.trim() || undefined,
+      pos: pos.trim() || undefined,
+      group: finalGroup,
+    })
     setEn('')
     setCn('')
+    setPos('')
     setGroup('')
     setPhonetic('')
+    setLookupMsg('')
   }
 
   return (
     <div className="page-container">
       <header className="page-header">
         <h1>单词本 📚</h1>
-        <p className="subtitle">共 {words.length} 个单词</p>
+        <p className="subtitle">共 {words.length} 个单词 · 输入英文点「查词」自动带出翻译/音标/词性</p>
       </header>
 
       <form className="add-form" onSubmit={handleSubmit}>
-        <input value={en} onChange={(e) => setEn(e.target.value)} placeholder="英文单词" />
+        <div className="add-form-en">
+          <input value={en} onChange={(e) => setEn(e.target.value)} placeholder="英文单词" />
+          <button type="button" className="btn btn--ghost btn--sm" onClick={handleLookup} disabled={looking}>
+            {looking ? '查询中…' : '🔍 查词'}
+          </button>
+        </div>
         <input value={cn} onChange={(e) => setCn(e.target.value)} placeholder="中文释义" />
+        <input value={pos} onChange={(e) => setPos(e.target.value)} placeholder="词性，如 n./v." />
         <input value={phonetic} onChange={(e) => setPhonetic(e.target.value)} placeholder="音标（可选）" />
         <input value={group} onChange={(e) => setGroup(e.target.value)} placeholder="分组分类" />
         <button type="submit" className="btn btn--primary">添加</button>
       </form>
+      {lookupMsg && <p className="lookup-msg">{lookupMsg}</p>}
 
       <div className="toolbar">
         <input
