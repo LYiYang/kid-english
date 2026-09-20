@@ -1841,3 +1841,15 @@ input {
   font-weight: 600;
   margin-top: 12px;
 }
+
+.scan-engine {
+  margin-top: 12px;
+}
+
+.scan-engine-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-h);
+  margin-bottom: 6px;
+}

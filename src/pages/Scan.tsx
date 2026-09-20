@@ -1,8 +1,15 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useApp } from '../store/useApp'
+import {
+  preprocessToCanvas,
+  recognizeHandwritten,
+  recognizePrinted,
+  type OcrProgress,
+} from '../lib/ocr'
 import type { TextUnit } from '../types'
 
 type Mode = 'word' | 'sentence' | 'text'
+type Engine = 'printed' | 'handwritten'
 
 function splitSentences(text: string): string[] {
   const lines = text.split('\n').map((s) => s.trim()).filter(Boolean)
@@ -21,62 +28,15 @@ function suggestMode(text: string): Mode {
   return 'word'
 }
 
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => resolve(img)
-    img.onerror = () => reject(new Error('图片加载失败'))
-    img.src = src
-  })
-}
-
-/**
- * 图像预处理：智能缩放 + 灰度化 + 对比度增强。
- * 手机照片通常需要这一步，否则 Tesseract 容易把单词切碎。
- */
-async function preprocessImage(file: File): Promise<string> {
-  const url = URL.createObjectURL(file)
-  try {
-    const img = await loadImage(url)
-    const w = img.naturalWidth
-    const h = img.naturalHeight
-    const maxW = 3200
-    const minW = 1200
-    let scale = 1
-    if (w > maxW) scale = maxW / w
-    else if (w < minW) scale = Math.min(3, 2000 / w)
-    const cw = Math.max(1, Math.round(w * scale))
-    const ch = Math.max(1, Math.round(h * scale))
-
-    const canvas = document.createElement('canvas')
-    canvas.width = cw
-    canvas.height = ch
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return url
-    ctx.drawImage(img, 0, 0, cw, ch)
-
-    const imageData = ctx.getImageData(0, 0, cw, ch)
-    const d = imageData.data
-    for (let i = 0; i < d.length; i += 4) {
-      const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
-      let v = (gray - 128) * 1.6 + 128
-      v = v < 0 ? 0 : v > 255 ? 255 : v
-      d[i] = d[i + 1] = d[i + 2] = v
-    }
-    ctx.putImageData(imageData, 0, 0)
-    return canvas.toDataURL('image/png')
-  } finally {
-    URL.revokeObjectURL(url)
-  }
-}
-
-
 export default function Scan() {
   const { addWord, addText, words } = useApp()
   const fileRef = useRef<HTMLInputElement>(null)
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [imageFile, setImageFile] = useState<File | null>(null)
+  const [engine, setEngine] = useState<Engine>('printed')
+  const [psm, setPsm] = useState('6')
   const [recognizing, setRecognizing] = useState(false)
+  const [status, setStatus] = useState('')
   const [recognizedText, setRecognizedText] = useState('')
   const [mode, setMode] = useState<Mode>('word')
   const [ocrError, setOcrError] = useState('')
@@ -86,7 +46,6 @@ export default function Scan() {
   const [wordCn, setWordCn] = useState<Record<string, string>>({})
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [msg, setMsg] = useState('')
-  const [psm, setPsm] = useState('6')
 
   const groups = useMemo(() => {
     const set = new Set(words.map((w) => w.group))
@@ -94,14 +53,16 @@ export default function Scan() {
   }, [words])
 
   const tokenCandidates = useMemo(() => {
-    const t = recognizedText
-    const tokens = t.split(/[^A-Za-z'-]+/).map((s) => s.trim()).filter((s) => s.length >= 2)
+    const tokens = recognizedText
+      .split(/[^A-Za-z'-]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 2)
     return Array.from(new Set(tokens.map((s) => s.toLowerCase())))
   }, [recognizedText])
 
   const sentenceItems = useMemo(() => splitSentences(recognizedText), [recognizedText])
 
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFile = (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     if (!f) return
     setImageFile(f)
@@ -109,6 +70,7 @@ export default function Scan() {
     setRecognizedText('')
     setOcrError('')
     setMsg('')
+    setStatus('')
   }
 
   const runOcr = async () => {
@@ -116,32 +78,35 @@ export default function Scan() {
     setRecognizing(true)
     setOcrError('')
     setMsg('')
+    setStatus('正在处理图片…')
+    const onProgress: OcrProgress = (message, percent) => {
+      setStatus(percent != null ? `${message}（${percent}%）` : message)
+    }
     try {
-      const prepared = await preprocessImage(imageFile)
-      const { createWorker, PSM } = await import('tesseract.js')
-      const worker = await createWorker('eng')
-      const psmValue = psm === '3' ? PSM.AUTO : psm === '11' ? PSM.SPARSE_TEXT : PSM.SINGLE_BLOCK
-      await worker.setParameters({
-        // 版式模式：3=自动，6=单块文字，11=分散文字
-        tessedit_pageseg_mode: psmValue,
-        // 保留单词之间的空格，避免把单词切碎
-        preserve_interword_spaces: '1',
-        // 让 Tesseract 按合理分辨率处理，避免过小/过大导致误切
-        user_defined_dpi: '300',
-      })
-      const { data } = await worker.recognize(prepared)
-      await worker.terminate()
-      const text = (data.text || '').trim()
+      const canvas = await preprocessToCanvas(imageFile)
+      const text =
+        engine === 'handwritten'
+          ? await recognizeHandwritten(canvas, onProgress)
+          : await recognizePrinted(canvas, psm)
       setRecognizedText(text)
       setMode(suggestMode(text))
-      const tokens = Array.from(new Set(text.split(/[^A-Za-z'-]+/).map((s) => s.trim()).filter((s) => s.length >= 2).map((s) => s.toLowerCase())))
+      const tokens = Array.from(
+        new Set(
+          text
+            .split(/[^A-Za-z'-]+/)
+            .map((s) => s.trim())
+            .filter((s) => s.length >= 2)
+            .map((s) => s.toLowerCase()),
+        ),
+      )
       setPicked(new Set(tokens))
       setWordCn({})
-      setMsg(text ? '识别完成，请校对并分类。' : '没有识别到文字，请换一张清晰的图片。')
+      setMsg(text ? '识别完成，请校对并分类。' : '没有识别到文字，请换一张更清晰的图片。')
     } catch (err) {
       setOcrError('识别失败：' + (err instanceof Error ? err.message : String(err)))
     } finally {
       setRecognizing(false)
+      setStatus('')
     }
   }
 
@@ -163,9 +128,7 @@ export default function Scan() {
       return
     }
     const g = group.trim() || '拍照录入'
-    list.forEach((x) =>
-      addWord({ en: x.en, cn: x.cn, group: g }),
-    )
+    list.forEach((x) => addWord({ en: x.en, cn: x.cn, group: g }))
     setMsg(`已添加 ${list.length} 个单词到「${g}」分组。`)
     setPicked(new Set())
   }
@@ -223,17 +186,6 @@ export default function Scan() {
               {recognizing ? '识别中…' : '✨ 识别文字'}
             </button>
           </div>
-          <label className="scan-label scan-psm">
-            版式
-            <select value={psm} onChange={(e) => setPsm(e.target.value)} className="member-input">
-              <option value="6">整段文字（默认）</option>
-              <option value="3">自动版面</option>
-              <option value="11">零散单词</option>
-            </select>
-          </label>
-          <p className="scan-hint">
-            拍摄技巧：光线充足、正对文字不倾斜、尽量只拍文字区域，效果最好。
-          </p>
           <input
             ref={fileRef}
             type="file"
@@ -242,6 +194,45 @@ export default function Scan() {
             onChange={handleFile}
             hidden
           />
+
+          <div className="scan-engine">
+            <span className="scan-engine-label">识别引擎</span>
+            <div className="scan-modes">
+              <button
+                type="button"
+                className={engine === 'printed' ? 'chip chip--active' : 'chip'}
+                onClick={() => setEngine('printed')}
+              >
+                印刷体（快）
+              </button>
+              <button
+                type="button"
+                className={engine === 'handwritten' ? 'chip chip--active' : 'chip'}
+                onClick={() => setEngine('handwritten')}
+              >
+                手写体（准）
+              </button>
+            </div>
+          </div>
+
+          {engine === 'printed' ? (
+            <label className="scan-label scan-psm">
+              版式
+              <select value={psm} onChange={(e) => setPsm(e.target.value)} className="member-input">
+                <option value="6">整段文字（默认）</option>
+                <option value="3">自动版面</option>
+                <option value="11">零散单词</option>
+              </select>
+            </label>
+          ) : (
+            <p className="scan-hint">
+              手写识别首次使用需下载模型（约几百 MB，走 hf-mirror 镜像），请耐心等待；识别按行进行，较慢。
+            </p>
+          )}
+          <p className="scan-hint">
+            拍摄技巧：光线充足、正对文字不倾斜、尽量只拍文字区域，效果最好。
+          </p>
+          {status && <p className="scan-msg">{status}</p>}
           {ocrError && <p className="warn">{ocrError}</p>}
         </div>
 
@@ -289,9 +280,7 @@ export default function Scan() {
               <p className="scan-hint">
                 已解析出 {tokenCandidates.length} 个英文单词，勾选要录入的，并填写中文释义。
               </p>
-              {tokenCandidates.length === 0 && (
-                <p className="empty">没有解析到单词。</p>
-              )}
+              {tokenCandidates.length === 0 && <p className="empty">没有解析到单词。</p>}
               {tokenCandidates.map((token) => (
                 <div key={token} className="scan-word-row">
                   <input
