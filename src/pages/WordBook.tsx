@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useApp } from '../store/useApp'
 import WordCard from '../components/WordCard'
-import { lookupWord } from '../lib/dictionary'
+import { fetchExamples, lookupWord, wordAudioUrl, type DictExample } from '../lib/dictionary'
 
 export default function WordBook() {
   const { words, wordsView, addWord, removeWord } = useApp()
@@ -30,6 +30,19 @@ export default function WordBook() {
   const [phonetic, setPhonetic] = useState('')
   const [looking, setLooking] = useState(false)
   const [lookupMsg, setLookupMsg] = useState('')
+  const [examples, setExamples] = useState<DictExample[]>([])
+  const [loadingEx, setLoadingEx] = useState(false)
+
+  function playPreview() {
+    const w = en.trim()
+    if (!w) return
+    try {
+      const audio = new Audio(wordAudioUrl(w))
+      audio.play().catch(() => undefined)
+    } catch {
+      // ignore
+    }
+  }
 
   async function handleLookup() {
     const word = en.trim()
@@ -39,21 +52,35 @@ export default function WordBook() {
     }
     setLooking(true)
     setLookupMsg('查询中…')
+    setExamples([])
     const r = await lookupWord(word)
     if (r.found) {
       setCn((prev) => prev || r.cn)
       setPhonetic((prev) => prev || r.phonetic)
       setPos((prev) => prev || r.pos)
-      if (!group.trim() && r.category) setGroup(r.category)
+      if (!group.trim() && (r.theme || r.category)) setGroup(r.theme || r.category)
+      const tags = [r.pos && r.pos, r.theme && `主题:${r.theme}`, r.category && `考纲:${r.category}`]
+        .filter(Boolean)
+        .join(' · ')
       setLookupMsg(
         r.source === 'online'
-          ? '词典库未收录，已用在线翻译填充释义'
-          : `已自动填充${r.pos ? '（' + r.pos + '）' : ''}${r.category ? ' · 分类：' + r.category : ''}`,
+          ? '词典库未收录，已用在线翻译填充释义（无音标/词性）'
+          : `已自动填充${tags ? '（' + tags + '）' : ''}`,
       )
     } else {
       setLookupMsg('未查到该词，请手动填写')
     }
     setLooking(false)
+  }
+
+  async function handleLoadExamples() {
+    const word = en.trim()
+    if (!word) return
+    setLoadingEx(true)
+    const list = await fetchExamples(word)
+    setExamples(list)
+    setLoadingEx(false)
+    if (list.length === 0) setLookupMsg('未获取到例句（需联网）')
   }
 
   function handleSubmit(e: FormEvent) {
@@ -84,9 +111,37 @@ export default function WordBook() {
 
       <form className="add-form" onSubmit={handleSubmit}>
         <div className="add-form-en">
-          <input value={en} onChange={(e) => setEn(e.target.value)} placeholder="英文单词" />
+          <input
+            value={en}
+            onChange={(e) => setEn(e.target.value)}
+            placeholder="英文单词"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                void handleLookup()
+              }
+            }}
+          />
           <button type="button" className="btn btn--ghost btn--sm" onClick={handleLookup} disabled={looking}>
             {looking ? '查询中…' : '🔍 查词'}
+          </button>
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={playPreview}
+            disabled={!en.trim()}
+            title="播放发音"
+          >
+            🔊
+          </button>
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={handleLoadExamples}
+            disabled={!en.trim() || loadingEx}
+            title="获取例句"
+          >
+            {loadingEx ? '例句…' : '例句'}
           </button>
         </div>
         <input value={cn} onChange={(e) => setCn(e.target.value)} placeholder="中文释义" />
@@ -96,6 +151,16 @@ export default function WordBook() {
         <button type="submit" className="btn btn--primary">添加</button>
       </form>
       {lookupMsg && <p className="lookup-msg">{lookupMsg}</p>}
+      {examples.length > 0 && (
+        <ul className="example-list">
+          {examples.map((ex, i) => (
+            <li key={i} className="example-item">
+              <span className="example-en">{ex.en}</span>
+              {ex.cn && <span className="example-cn">{ex.cn}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
 
       <div className="toolbar">
         <input

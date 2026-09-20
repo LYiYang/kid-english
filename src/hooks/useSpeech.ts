@@ -62,5 +62,21 @@ export function useSpeech() {
     [supported, pickVoice],
   )
 
-  return { speak, cancel, speaking, supported }
+  // 单词发音：优先真人音频（有道），失败则回退到系统 TTS
+  const playWord = useCallback(
+    (word: string) => {
+      if (!word) return
+      try {
+        const audio = new Audio(
+          `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(word)}&type=2`,
+        )
+        audio.play().catch(() => speak(word))
+      } catch {
+        speak(word)
+      }
+    },
+    [speak],
+  )
+
+  return { speak, playWord, cancel, speaking, supported }
 }

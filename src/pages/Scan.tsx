@@ -220,6 +220,7 @@ export default function Scan() {
     const cnMap: Record<string, string> = {}
     const phMap: Record<string, string> = {}
     const posMap: Record<string, string> = {}
+    let suggestedGroup = ''
     for (let i = 0; i < tokens.length; i++) {
       setStatus(`查词 ${i + 1}/${tokens.length}：${tokens[i]}`)
       const r = await lookupWord(tokens[i])
@@ -227,11 +228,13 @@ export default function Scan() {
         cnMap[tokens[i]] = r.cn
         phMap[tokens[i]] = r.phonetic
         posMap[tokens[i]] = r.pos
+        if (!suggestedGroup) suggestedGroup = r.theme || r.category
       }
     }
     setWordCn((prev) => ({ ...prev, ...cnMap }))
     setWordPh((prev) => ({ ...prev, ...phMap }))
     setWordPos((prev) => ({ ...prev, ...posMap }))
+    setGroup((prev) => prev || suggestedGroup)
     setStatus('')
     setLooking(false)
     setMsg(`已自动查词 ${Object.keys(cnMap).length}/${tokens.length} 个，可再手动修改。`)

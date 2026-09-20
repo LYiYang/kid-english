@@ -9,7 +9,7 @@ interface WordCardProps {
 }
 
 export default function WordCard({ word, size = 'md', showCn = true, onSpeak }: WordCardProps) {
-  const { speak, supported } = useSpeech()
+  const { playWord, supported } = useSpeech()
 
   return (
     <div className={`word-card word-card--${size}`}>
@@ -22,7 +22,7 @@ export default function WordCard({ word, size = 'md', showCn = true, onSpeak }: 
               className="sound-btn"
               onClick={(e) => {
                 e.stopPropagation()
-                speak(word.en)
+                playWord(word.en)
                 onSpeak?.()
               }}
             >
