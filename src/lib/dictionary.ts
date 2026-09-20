@@ -30,6 +30,34 @@ const TAG_LABELS: Record<string, string> = {
 }
 const TAG_ORDER = ['zk', 'gk', 'cet4', 'cet6', 'ky', 'toefl', 'ielts', 'gre']
 
+// 可手动选择的主题分类
+export const THEME_OPTIONS = [
+  '水果',
+  '蔬菜',
+  '食物',
+  '饮料',
+  '动物',
+  '颜色',
+  '数字',
+  '身体',
+  '家庭',
+  '学校',
+  '交通',
+  '天气',
+  '时间',
+  '衣物',
+  '运动',
+  '职业',
+  '自然',
+  '情绪',
+  '房屋',
+  '科技',
+  '节日',
+  '爱好',
+  '购物',
+  '方位',
+]
+
 const base = () => import.meta.env.BASE_URL
 
 let corePromise: Promise<Dict> | null = null

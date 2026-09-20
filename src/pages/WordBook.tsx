@@ -2,31 +2,50 @@ import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useApp } from '../store/useApp'
 import WordCard from '../components/WordCard'
-import { fetchExamples, lookupWord, wordAudioUrl, type DictExample } from '../lib/dictionary'
+import {
+  fetchExamples,
+  lookupWord,
+  THEME_OPTIONS,
+  wordAudioUrl,
+  type DictExample,
+} from '../lib/dictionary'
+
+type Dim = 'group' | 'theme'
 
 export default function WordBook() {
-  const { words, wordsView, addWord, removeWord } = useApp()
-  const [groupFilter, setGroupFilter] = useState<string>('全部')
+  const { words, wordsView, addWord, updateWord, removeWord, themeOverrides, setThemeOverride } =
+    useApp()
+  const [dim, setDim] = useState<Dim>('group')
+  const [filter, setFilter] = useState<string>('全部')
   const [query, setQuery] = useState('')
 
-  const groups = useMemo(() => {
+  const groupOptions = useMemo(() => {
     const set = new Set(words.map((w) => w.group))
-    return ['全部', ...Array.from(set)]
+    return ['全部', ...Array.from(set).sort()]
+  }, [words])
+
+  const themeOptions = useMemo(() => {
+    const set = new Set(words.map((w) => w.theme).filter(Boolean) as string[])
+    return ['全部', '未分类', ...Array.from(set).sort()]
   }, [words])
 
   const filtered = useMemo(() => {
     return wordsView.filter((w) => {
-      const okGroup = groupFilter === '全部' || w.group === groupFilter
+      const okFilter =
+        filter === '全部' ||
+        (dim === 'group' && w.group === filter) ||
+        (dim === 'theme' && (filter === '未分类' ? !w.theme : w.theme === filter))
       const q = query.trim().toLowerCase()
       const okQuery = !q || w.en.toLowerCase().includes(q) || w.cn.includes(query.trim())
-      return okGroup && okQuery
+      return okFilter && okQuery
     })
-  }, [wordsView, groupFilter, query])
+  }, [wordsView, dim, filter, query])
 
   const [en, setEn] = useState('')
   const [cn, setCn] = useState('')
   const [pos, setPos] = useState('')
   const [group, setGroup] = useState('')
+  const [theme, setTheme] = useState('')
   const [phonetic, setPhonetic] = useState('')
   const [looking, setLooking] = useState(false)
   const [lookupMsg, setLookupMsg] = useState('')
@@ -44,6 +63,12 @@ export default function WordBook() {
     }
   }
 
+  // 手动纠正主题：写入覆盖表（永久回写），并立即生效
+  function correctTheme(word: string, value: string) {
+    setTheme(value)
+    if (word.trim()) setThemeOverride(word, value)
+  }
+
   async function handleLookup() {
     const word = en.trim()
     if (!word) {
@@ -58,13 +83,20 @@ export default function WordBook() {
       setCn((prev) => prev || r.cn)
       setPhonetic((prev) => prev || r.phonetic)
       setPos((prev) => prev || r.pos)
-      if (!group.trim() && (r.theme || r.category)) setGroup(r.theme || r.category)
-      const tags = [r.pos && r.pos, r.theme && `主题:${r.theme}`, r.category && `考纲:${r.category}`]
+      const override = themeOverrides[word.toLowerCase()]
+      const resolvedTheme = override || r.theme || ''
+      setTheme((prev) => prev || resolvedTheme)
+      if (!group.trim()) setGroup((prev) => prev || resolvedTheme || r.category)
+      const tags = [
+        r.pos || '',
+        resolvedTheme && `主题:${resolvedTheme}${override ? '(已修正)' : ''}`,
+        r.category && `考纲:${r.category}`,
+      ]
         .filter(Boolean)
         .join(' · ')
       setLookupMsg(
         r.source === 'online'
-          ? '词典库未收录，已用在线翻译填充释义（无音标/词性）'
+          ? '词典库未收录，已用在线翻译填充释义'
           : `已自动填充${tags ? '（' + tags + '）' : ''}`,
       )
     } else {
@@ -86,18 +118,20 @@ export default function WordBook() {
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
     if (!en.trim() || !cn.trim()) return
-    const finalGroup = group.trim() || '未分组'
+    const finalGroup = group.trim() || theme.trim() || '未分组'
     addWord({
       en: en.trim(),
       cn: cn.trim(),
       phonetic: phonetic.trim() || undefined,
       pos: pos.trim() || undefined,
       group: finalGroup,
+      theme: theme.trim() || undefined,
     })
     setEn('')
     setCn('')
     setPos('')
     setGroup('')
+    setTheme('')
     setPhonetic('')
     setLookupMsg('')
   }
@@ -106,7 +140,9 @@ export default function WordBook() {
     <div className="page-container">
       <header className="page-header">
         <h1>单词本 📚</h1>
-        <p className="subtitle">共 {words.length} 个单词 · 输入英文点「查词」自动带出翻译/音标/词性</p>
+        <p className="subtitle">
+          共 {words.length} 个单词 · 输入英文点「查词」自动带出翻译/音标/词性，并可按单元或主题分类
+        </p>
       </header>
 
       <form className="add-form" onSubmit={handleSubmit}>
@@ -147,7 +183,20 @@ export default function WordBook() {
         <input value={cn} onChange={(e) => setCn(e.target.value)} placeholder="中文释义" />
         <input value={pos} onChange={(e) => setPos(e.target.value)} placeholder="词性，如 n./v." />
         <input value={phonetic} onChange={(e) => setPhonetic(e.target.value)} placeholder="音标（可选）" />
-        <input value={group} onChange={(e) => setGroup(e.target.value)} placeholder="分组分类" />
+        <input value={group} onChange={(e) => setGroup(e.target.value)} placeholder="单元/分组" />
+        <select
+          className="theme-select"
+          value={theme}
+          onChange={(e) => correctTheme(en, e.target.value)}
+          title="主题分类（可手动纠正，会永久记住）"
+        >
+          <option value="">主题分类…</option>
+          {THEME_OPTIONS.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
         <button type="submit" className="btn btn--primary">添加</button>
       </form>
       {lookupMsg && <p className="lookup-msg">{lookupMsg}</p>}
@@ -163,6 +212,28 @@ export default function WordBook() {
       )}
 
       <div className="toolbar">
+        <div className="dim-toggle">
+          <button
+            type="button"
+            className={dim === 'group' ? 'chip chip--active' : 'chip'}
+            onClick={() => {
+              setDim('group')
+              setFilter('全部')
+            }}
+          >
+            按单元
+          </button>
+          <button
+            type="button"
+            className={dim === 'theme' ? 'chip chip--active' : 'chip'}
+            onClick={() => {
+              setDim('theme')
+              setFilter('全部')
+            }}
+          >
+            按主题
+          </button>
+        </div>
         <input
           className="search-input"
           value={query}
@@ -170,12 +241,12 @@ export default function WordBook() {
           placeholder="搜索单词…"
         />
         <div className="filter-chips">
-          {groups.map((g) => (
+          {(dim === 'group' ? groupOptions : themeOptions).map((g) => (
             <button
               key={g}
               type="button"
-              className={g === groupFilter ? 'chip chip--active' : 'chip'}
-              onClick={() => setGroupFilter(g)}
+              className={g === filter ? 'chip chip--active' : 'chip'}
+              onClick={() => setFilter(g)}
             >
               {g}
             </button>
@@ -191,6 +262,22 @@ export default function WordBook() {
             <div key={w.id} className="word-row">
               <WordCard word={w} size="sm" />
               <span className="word-group-tag">{w.group}</span>
+              <select
+                className="theme-select theme-select--row"
+                value={w.theme || ''}
+                onChange={(e) => {
+                  updateWord(w.id, { theme: e.target.value || undefined })
+                  setThemeOverride(w.en, e.target.value)
+                }}
+                title="修改主题分类（永久记住）"
+              >
+                <option value="">未分类</option>
+                {THEME_OPTIONS.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
               <span className={`status-pill status-${w.progress.status}`}>
                 {statusLabel(w.progress.status)}
               </span>

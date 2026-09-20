@@ -66,6 +66,7 @@ export default function Scan() {
   const [wordCn, setWordCn] = useState<Record<string, string>>({})
   const [wordPh, setWordPh] = useState<Record<string, string>>({})
   const [wordPos, setWordPos] = useState<Record<string, string>>({})
+  const [wordTheme, setWordTheme] = useState<Record<string, string>>({})
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [looking, setLooking] = useState(false)
   const [msg, setMsg] = useState('')
@@ -204,6 +205,7 @@ export default function Scan() {
         phonetic: wordPh[x.en] || undefined,
         pos: wordPos[x.en] || undefined,
         group: g,
+        theme: wordTheme[x.en] || undefined,
       }),
     )
     setMsg(`已添加 ${list.length} 个单词到「${g}」分组。`)
@@ -220,6 +222,7 @@ export default function Scan() {
     const cnMap: Record<string, string> = {}
     const phMap: Record<string, string> = {}
     const posMap: Record<string, string> = {}
+    const themeMap: Record<string, string> = {}
     let suggestedGroup = ''
     for (let i = 0; i < tokens.length; i++) {
       setStatus(`查词 ${i + 1}/${tokens.length}：${tokens[i]}`)
@@ -228,12 +231,14 @@ export default function Scan() {
         cnMap[tokens[i]] = r.cn
         phMap[tokens[i]] = r.phonetic
         posMap[tokens[i]] = r.pos
+        if (r.theme) themeMap[tokens[i]] = r.theme
         if (!suggestedGroup) suggestedGroup = r.theme || r.category
       }
     }
     setWordCn((prev) => ({ ...prev, ...cnMap }))
     setWordPh((prev) => ({ ...prev, ...phMap }))
     setWordPos((prev) => ({ ...prev, ...posMap }))
+    setWordTheme((prev) => ({ ...prev, ...themeMap }))
     setGroup((prev) => prev || suggestedGroup)
     setStatus('')
     setLooking(false)

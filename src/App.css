@@ -680,6 +680,29 @@ input {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  max-height: 96px;
+  overflow-y: auto;
+}
+
+.dim-toggle {
+  display: flex;
+  gap: 8px;
+}
+
+.theme-select {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 14px;
+  background: #fff;
+  color: var(--text-h);
+}
+
+.theme-select--row {
+  padding: 5px 8px;
+  font-size: 12px;
+  border-radius: 8px;
+  flex-shrink: 0;
 }
 
 .chip {

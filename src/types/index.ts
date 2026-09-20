@@ -17,6 +17,7 @@ export interface Word {
   phonetic?: string
   pos?: string
   group: string
+  theme?: string
   example?: string
   exampleCn?: string
   createdAt: number
@@ -66,6 +67,14 @@ export interface GameLevel {
 }
 
 export type MemberRole = 'admin' | 'kid'
+
+export interface Reward {
+  id: string
+  name: string
+  icon: string
+  cost: number
+  claimed?: boolean
+}
 
 export interface Member {
   id: string

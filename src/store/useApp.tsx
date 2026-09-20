@@ -7,8 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import wordsData from '../data/words.json'
-import textsData from '../data/texts.json'
+import wordsData from '../data/pep.json'
 import type {
   LevelResult,
   Member,
@@ -24,15 +23,15 @@ import { createInitialProgress, schedule } from '../utils/spacedRepeat'
 import { usePersistentState } from '../hooks/usePersistentState'
 import { getFamilyId, setFamilyId } from '../lib/family'
 
-// 与 kid-tasks 共用的 key（同一浏览器、同一 Supabase 行）
-// → 共享家庭码 / 成员 / 活跃身份 / 按成员积分
+// 与 kid-tasks 共用的 key（同一浏览器、同一 Supabase 行）→ 共享成员/活跃身份/积分
 const MEMBERS_KEY = 'kid-tasks.members'
 const ACTIVE_KEY = 'kid-tasks.activeMember'
-const POINTS_KEY = 'kid-tasks.pointsByMember'
-// kids-english 专属：每个成员的学习进度（词库、复习、星星）+ 课文
-const WORDS_KEY = 'kids-english:words'
-const PROGRESS_KEY = 'kids-english:progress'
-const TEXTS_KEY = 'kids-english:texts'
+const POINTS_KEY = 'kid-tasks.earnedPoints'
+// kids-english 专属：学习进度 + 课文 + 主题纠正（v2：导入人教版教材后重置旧测试数据）
+const WORDS_KEY = 'kids-english:words:v2'
+const PROGRESS_KEY = 'kids-english:progress:v2'
+const TEXTS_KEY = 'kids-english:texts:v2'
+const THEME_KEY = 'kids-english:themeOverrides'
 
 const DEFAULT_PIN = '1234'
 
@@ -48,20 +47,14 @@ function makeDefaultMembers(): Member[] {
 
 function makeDefaultWords(): Word[] {
   const now = Date.now()
-  return (wordsData as Word[]).map((w, i) => ({
+  return (wordsData.words as Omit<Word, 'createdAt'>[]).map((w, i) => ({
     ...w,
-    id: w.id || `seed-${i}-${w.en}`,
     createdAt: now - i,
   }))
 }
 
 function makeDefaultTexts(): TextUnit[] {
-  const now = Date.now()
-  return (textsData as TextUnit[]).map((t) => ({
-    ...t,
-    createdAt: t.createdAt || now,
-    id: t.id || `text-${now}-${t.title}`,
-  }))
+  return []
 }
 
 function defaultUserData(): UserData {
@@ -91,9 +84,20 @@ interface AppContextValue {
   /* 词库（家庭共享） */
   words: Word[]
   wordsView: WordView[]
-  addWord: (w: { en: string; cn: string; phonetic?: string; pos?: string; group: string }) => void
+  addWord: (w: {
+    en: string
+    cn: string
+    phonetic?: string
+    pos?: string
+    group: string
+    theme?: string
+  }) => void
+  updateWord: (id: string, patch: Partial<Word>) => void
   removeWord: (id: string) => void
   resetWords: () => void
+  /* 主题分类人工纠正（回写，永久记忆） */
+  themeOverrides: Record<string, string>
+  setThemeOverride: (en: string, theme: string) => void
   /* 课文（家庭共享，可增删） */
   texts: TextUnit[]
   addText: (t: TextUnit) => void
@@ -132,6 +136,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     TEXTS_KEY,
     makeDefaultTexts(),
   )
+  const [themeOverrides, setThemeOverrides, themeReady] = usePersistentState<
+    Record<string, string>
+  >(THEME_KEY, {})
   const [parentUnlocked, setParentUnlocked] = useState(false)
 
   const ready =
@@ -140,7 +147,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     wordsReady &&
     progressReady &&
     pointsReady &&
-    textsReady
+    textsReady &&
+    themeReady
 
   // 保证每个成员都有 progress 数据
   useEffect(() => {
@@ -239,7 +247,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
       words,
       wordsView,
-      addWord: ({ en, cn, phonetic, pos, group }) => {
+      addWord: ({ en, cn, phonetic, pos, group, theme }) => {
         const now = Date.now()
         setWords((prev) => [
           ...prev,
@@ -250,12 +258,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
             phonetic,
             pos,
             group,
+            theme,
             createdAt: now,
           },
         ])
       },
+      updateWord: (id, patch) =>
+        setWords((prev) => prev.map((w) => (w.id === id ? { ...w, ...patch } : w))),
       removeWord: (id) => setWords((prev) => prev.filter((w) => w.id !== id)),
       resetWords: () => setWords(makeDefaultWords()),
+      themeOverrides,
+      setThemeOverride: (en, theme) =>
+        setThemeOverrides((prev) => ({ ...prev, [en.toLowerCase().trim()]: theme })),
       texts,
       addText: (t) => setTexts((prev) => [...prev, t]),
       removeText: (id) => setTexts((prev) => prev.filter((t) => t.id !== id)),
