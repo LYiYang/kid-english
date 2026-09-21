@@ -8,7 +8,6 @@ import {
   type ReactNode,
 } from 'react'
 import wordsData from '../data/pep.json'
-import extraData from '../data/pep-extra.json'
 import type {
   LevelResult,
   Member,
@@ -49,12 +48,8 @@ function makeDefaultMembers(): Member[] {
 function makeDefaultWords(): Word[] {
   const now = Date.now()
   const seen = new Set<string>()
-  const all = [
-    ...(wordsData.words as Omit<Word, 'createdAt'>[]),
-    ...(extraData.words as Omit<Word, 'createdAt'>[]),
-  ]
   const list: Word[] = []
-  for (const w of all) {
+  for (const w of wordsData.words as Omit<Word, 'createdAt'>[]) {
     const k = w.en.toLowerCase().trim()
     if (seen.has(k)) continue
     seen.add(k)
