@@ -56,6 +56,7 @@ export const THEME_OPTIONS = [
   '爱好',
   '购物',
   '方位',
+  '玩具',
 ]
 
 const base = () => import.meta.env.BASE_URL
