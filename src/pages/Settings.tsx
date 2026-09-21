@@ -3,7 +3,7 @@ import { useApp } from '../store/useApp'
 import { getFamilyId } from '../lib/family'
 
 export default function Settings() {
-  const { saveFamilyId, isAdmin, resetAll, activeMember, members, words, userData, points } =
+  const { saveFamilyId, isAdmin, resetAll, resetWords, activeMember, members, words, userData, points } =
     useApp()
   const [confirming, setConfirming] = useState(false)
   const [familyInput, setFamilyInput] = useState(getFamilyId())
@@ -96,6 +96,15 @@ export default function Settings() {
       {isAdmin && (
         <div className="settings-section settings-danger">
           <h3 className="settings-danger-title">数据管理</h3>
+          <button
+            className="settings-reset-btn"
+            type="button"
+            onClick={() => {
+              if (confirm('重新载入官方教材词库？当前词库将被替换（成员/积分不变）。')) resetWords()
+            }}
+          >
+            重新载入教材词库
+          </button>
           <button className="settings-reset-btn" type="button" onClick={handleReset}>
             {confirming ? '再次点击确认重置' : '重置所有数据'}
           </button>

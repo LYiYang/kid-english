@@ -27,11 +27,14 @@ import { getFamilyId, setFamilyId } from '../lib/family'
 const MEMBERS_KEY = 'kid-tasks.members'
 const ACTIVE_KEY = 'kid-tasks.activeMember'
 const POINTS_KEY = 'kid-tasks.earnedPoints'
-// kids-english 专属：学习进度 + 课文 + 主题纠正（v2：导入人教版教材后重置旧测试数据）
-const WORDS_KEY = 'kids-english:words:v2'
-const PROGRESS_KEY = 'kids-english:progress:v2'
+// kids-english 专属：学习进度 + 课文 + 主题纠正
+const WORDS_KEY = 'kids-english:words:v3'
+const PROGRESS_KEY = 'kids-english:progress:v3'
 const TEXTS_KEY = 'kids-english:texts:v2'
 const THEME_KEY = 'kids-english:themeOverrides'
+const SEED_KEY = 'kids-english:seedVersion'
+// 教材数据版本：每次更新官方词库后 +1，用户端会自动重新载入
+const SEED_VERSION = 4
 
 const DEFAULT_PIN = '1234'
 
@@ -144,6 +147,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [themeOverrides, setThemeOverrides, themeReady] = usePersistentState<
     Record<string, string>
   >(THEME_KEY, {})
+  const [seedVersion, setSeedVersion, seedReady] = usePersistentState<number>(SEED_KEY, 0)
   const [parentUnlocked, setParentUnlocked] = useState(false)
 
   const ready =
@@ -153,7 +157,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     progressReady &&
     pointsReady &&
     textsReady &&
-    themeReady
+    themeReady &&
+    seedReady
+
+  // 教材数据版本变化时：重新载入官方词库（覆盖旧的单元划分）
+  useEffect(() => {
+    if (!ready) return
+    if (seedVersion !== SEED_VERSION) {
+      setWords(makeDefaultWords())
+      setSeedVersion(SEED_VERSION)
+    }
+  }, [ready, seedVersion, setWords, setSeedVersion])
 
   // 保证每个成员都有 progress 数据
   useEffect(() => {
